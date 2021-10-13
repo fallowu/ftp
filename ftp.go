@@ -89,6 +89,12 @@ func Dial(addr string, options ...DialOption) (*ServerConn, error) {
 		do.location = time.UTC
 	}
 
+	// FIXME timeout does not respect do.context yet
+	var deadline time.Time
+	if timeout := do.dialer.Timeout; timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+
 	tconn := do.conn
 	if tconn == nil {
 		var err error
@@ -110,6 +116,10 @@ func Dial(addr string, options ...DialOption) (*ServerConn, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if !deadline.IsZero() {
+		tconn.SetDeadline(deadline)
 	}
 
 	// Use the resolved IP address in case addr contains a domain name
@@ -137,6 +147,19 @@ func Dial(addr string, options ...DialOption) (*ServerConn, error) {
 		tconn = tls.Client(tconn, do.tlsConfig)
 		c.conn = textproto.NewConn(do.wrapConn(tconn))
 	}
+
+	err = c.feat()
+	if err != nil {
+		c.Quit()
+		return nil, err
+	}
+
+	if _, mlstSupported := c.features["MLST"]; mlstSupported {
+		c.mlstSupported = true
+	}
+
+	// Remove deadline
+	tconn.SetDeadline(time.Time{})
 
 	return c, nil
 }
